@@ -1,6 +1,5 @@
 use std::env;
 use std::path::{Path, PathBuf};
-use tar::Archive;
 
 fn main() {
     // Target directory for downloaded files
@@ -33,7 +32,7 @@ fn main() {
         }
     };
     // Unpack the tarball
-    Archive::new(tar_file)
+    tar::Archive::new(tar_file)
         .unpack(&code_path)
         .expect("Unable to unpack library tarball");
 
@@ -60,7 +59,7 @@ fn main() {
         }
     };
     // Unpack the tarball
-    Archive::new(tar_file)
+    tar::Archive::new(tar_file)
         .unpack(&coeffs_path)
         .expect("Unable to unpack coefficients tarball");
 
@@ -85,8 +84,6 @@ fn main() {
 
     // Path to the intermediate object file for the library
     let obj_path = code_path.join("aacgmlib_v2.o");
-    // Path to the static library file
-    let lib_path = code_path.join("libaacgmlib_v2.a");
 
     // Tell cargo to look for shared libraries in the specified directory
     println!("cargo:rustc-link-search={}", code_path.to_str().unwrap());
@@ -104,32 +101,12 @@ fn main() {
     if std::fs::File::open(code_path.join("aacgmlib_v2.c")).is_err() {
         panic!("C code file missing!")
     }
-    let status = std::process::Command::new("clang")
-        .arg("-c")
-        .arg("-o")
-        .arg(&obj_path)
-        .arg(code_path.join("aacgmlib_v2.c"))
-        .output()
-        .expect("Could not spawn `clang`");
-    if !status.status.success() {
-        // Panic if the command was not successful
-        panic!("Could not compile object file: {status:?}");
-    }
 
-    // Run `ar` to generate the `libaacgmlib_v2.a` file from the `aacgmlib_v2.o` file.
-    // Unwrap if it is not possible to spawn the process
-    if !std::process::Command::new("ar")
-        .arg("rcs")
-        .arg(lib_path)
-        .arg(obj_path)
-        .output()
-        .expect("could not spawn `ar`")
-        .status
-        .success()
-    {
-        // Panic if the command was not successful
-        panic!("could not emit library file");
-    }
+    // Compile the aacgmlib_v2 library to an archive file `libaacgmlib_v2.a`
+    cc::Build::new()
+        .file(code_path.join("aacgmlib_v2.c"))
+        .warnings(false)
+        .compile("aacgmlib_v2");
 
     let bindings = bindgen::Builder::default()
         // Throw in stdio.h first so all types are available when generating aacgmlib_v2.h header
