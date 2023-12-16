@@ -1,92 +1,44 @@
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 fn main() {
-    // Target directory for downloaded files
-    let mut out_dir = PathBuf::from("target")
+    let dir = PathBuf::from("src")
         .canonicalize()
         .expect("Cannot canonicalize path");
-    out_dir = out_dir.join("aacgm_v2");
-    if !Path::new(&out_dir).is_dir() {
-        std::fs::create_dir_all(out_dir.clone()).expect("Cannot create target directory");
-    }
 
     // Get the aacgm_v2 C code files
     let code_dir = "c_aacgm_v2.6";
-    let code_path = out_dir.join(code_dir);
-    let tar_path = out_dir.join(format!("{code_dir}.tar"));
-    let tar_file = match std::fs::File::open(&tar_path) {
-        Ok(f) => f,
-        Err(_) => {
-            // Download the aacgm_v2 code
-            let code_url = format!("https://superdarn.thayer.dartmouth.edu/aacgm/{code_dir}.tar");
-            let mut response =
-                reqwest::blocking::get(code_url).expect("Unable to get library tarball");
-            // Put the response (the file itself) into archive_file
-            let mut archive_file =
-                std::fs::File::create(&tar_path).expect("Unable to open library tarball");
-            response
-                .copy_to(&mut archive_file)
-                .expect("Could not copy code tarball");
-            std::fs::File::open(&tar_path).expect("Unable to open newly-written code tarball")
-        }
-    };
-    // Unpack the tarball
-    tar::Archive::new(tar_file)
-        .unpack(&code_path)
-        .expect("Unable to unpack library tarball");
 
     // Get the coefficient files
     let coeffs_dir = "aacgm_coeffs-13";
-    let coeffs_path = out_dir.join(coeffs_dir);
-    let tar_path = out_dir.join(format!("{coeffs_dir}.tar"));
-    let tar_file = match std::fs::File::open(&tar_path) {
-        Ok(f) => f,
-        Err(_) => {
-            // Download the aacgm_v2 coefficients
-            let coeffs_url =
-                format!("https://superdarn.thayer.dartmouth.edu/aacgm/{coeffs_dir}.tar");
-            let mut response =
-                reqwest::blocking::get(coeffs_url).expect("Unable to get coefficients tarball");
-            // Put the response (the file itself) into archive_file
-            let mut archive_file =
-                std::fs::File::create(&tar_path).expect("Unable to open coefficients tarball");
-            response
-                .copy_to(&mut archive_file)
-                .expect("Could not copy coefficients tarball");
-            std::fs::File::open(&tar_path)
-                .expect("Unable to open newly-written coefficients tarball")
-        }
-    };
-    // Unpack the tarball
-    tar::Archive::new(tar_file)
-        .unpack(&coeffs_path)
-        .expect("Unable to unpack coefficients tarball");
 
-    // If necessary environment variables for AACGM_V2 not set, then set them accordingly to paths
-    // to newly-downloaded files
+    // If necessary environment variables for AACGM_V2 not set, then set them accordingly
     if !env::var("AACGM_v2_DAT_PREFIX").is_ok() {
         env::set_var(
             "AACGM_v2_DAT_PREFIX",
-            coeffs_path.join(format!("{coeffs_dir}-")),
+            dir.join(format!("{coeffs_dir}/{coeffs_dir}-")),
         );
     }
     if !env::var("IGRF_COEFFS").is_ok() {
         env::set_var(
             "IGRF_COEFFS",
-            code_path.join(format!("magmodel_1590-2020.txt")),
+            dir.join(format!("{code_dir}/magmodel_1590-2020.txt")),
         );
     }
 
     // This is the path to the C header file
-    let header_path = code_path.join("aacgmlib_v2.h");
+    let header_path = dir.join(format!("{code_dir}/aacgmlib_v2.h"));
     let header_path_str = header_path.to_str().expect("Path is not a valid string");
 
     // Path to the intermediate object file for the library
-    let obj_path = code_path.join("aacgmlib_v2.o");
+    let obj_path = dir.join(format!("{code_dir}/aacgmlib_v2.o"));
 
     // Tell cargo to look for shared libraries in the specified directory
-    println!("cargo:rustc-link-search={}", code_path.to_str().unwrap());
+    println!(
+        "cargo:rustc-link-search={}/{}",
+        dir.to_str().unwrap(),
+        code_dir
+    );
 
     // Tell cargo to tell rustc to link the aacgm shared library
     println!("cargo:rustc-link-lib=aacgmlib_v2");
@@ -96,15 +48,15 @@ fn main() {
 
     // Run `clang` to compile the `aacgmlib_v2.c` file into a `aacgmlib_v2.o` object file.
     // Unwrap if not possible to spawn the process.
-    println!("clang -c -o {obj_path:?} {code_path:?}/aacgmlib_v2.c");
+    println!("clang -c -o {obj_path:?} {dir:?}/{code_dir}/aacgmlib_v2.c");
 
-    if std::fs::File::open(code_path.join("aacgmlib_v2.c")).is_err() {
+    if std::fs::File::open(dir.join(format!("{code_dir}/aacgmlib_v2.c"))).is_err() {
         panic!("C code file missing!")
     }
 
     // Compile the aacgmlib_v2 library to an archive file `libaacgmlib_v2.a`
     cc::Build::new()
-        .file(code_path.join("aacgmlib_v2.c"))
+        .file(dir.join(format!("{code_dir}/aacgmlib_v2.c")))
         .warnings(false)
         .compile("aacgmlib_v2");
 
@@ -121,7 +73,8 @@ fn main() {
         .expect("Unable to generate bindings");
 
     // Write the bindings to $OUT_DIR/bindings.rs
-    let out_path = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
+    println!("{out_path:?}");
     bindings
         .write_to_file(out_path.join("bindings.rs"))
         .expect("Couldn't write bindings!");
